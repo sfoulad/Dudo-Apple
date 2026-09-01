@@ -107,7 +107,8 @@ the Xcode project and are not compiled; they are design inputs.
 | `Dudo-Foreground-Dark.png` | as above with the brightest cream held back 8% |
 | `Dudo-Foreground-Mono.png` | greyscale remap for the Mono / tinted appearance |
 | `Dudo-Features-Default.png` | optional: face, beak and eye only, pixel-aligned on top of the foreground |
-| `Dudo-Source-Flat-1254.png` | the original flat artwork, kept for provenance |
+| `Dudo-Source-Flat-1254.png` | the original flat artwork — the input everything else derives from |
+| `make_app_icon.py` | the generator that produces every other file above, and the appiconset |
 
 The background layers are **flat fields, not the original background**. The source
 carries roughly ±2 per channel of noise, which composites badly under the material
@@ -200,17 +201,34 @@ Not yet done, and it should be a deliberate decision rather than a side effect:
 **Keep `AppIcon.appiconset` until that is verified.** Only one app icon source is
 active at a time, so switching is reversible by changing that one build setting back.
 
-**Deployment-target caveat.** The project targets iOS 18.0 and macOS 15.0. Liquid
-Glass rendering is a 26-era feature, so systems older than that need conventional
-icon renditions. Confirm those are still produced for the older targets before
-removing the `appiconset` — do not assume it.
+**Deployment-target conflict — read this before planning the Icon Composer step.**
+The project targets **iOS 18.0 and macOS 15.0**, while Liquid Glass rendering is a
+26-era feature. The icon effects this whole exercise is aimed at therefore require an
+OS generation the app does not currently target. Systems older than 26 need
+conventional renditions regardless. This is a product decision, not a detail to work
+around: either the deployment targets move, or the `.icon` is added for newer systems
+with the `appiconset` retained as the fallback for older ones. Nothing here assumes
+which. The `appiconset` remains the shipping path.
 
 ---
 
-## 4. How the separation was made, and how it was checked
+## 4. Regenerating the icon
 
-The generation script lives outside this repository by decision, so the method is
-recorded here instead.
+    python3 Design/AppIcon/make_app_icon.py            # regenerate everything
+    python3 Design/AppIcon/make_app_icon.py --verify   # and print the evidence below
+
+`Design/AppIcon/make_app_icon.py` is a **design-time tool, not part of the build**.
+No build phase, run script, or target dependency invokes it; Xcode builds from the
+generated PNGs. It requires only numpy and Pillow, installs nothing, reaches no
+network, and touches no signing or App Store state. It writes PNGs only —
+`Contents.json` and this document are maintained by hand.
+
+Output is **byte-reproducible**: two consecutive runs produce 17 of 17 identical
+files. That needed one deliberate fix. `ImageCms.createProfile` stamps the current
+time into the ICC header's creation-date field, so every run would otherwise emit
+different bytes from identical pixels and dirty every binary in git for no reason.
+The script zeroes that field, which the spec permits; the profile-ID field is all
+zeros, so no checksum is invalidated.
 
 ### Method
 
@@ -289,14 +307,16 @@ since both backdrops are neutral. It is one test, not two.
 crops over white alongside the matching source crops. The navy notch between the hook
 and the cream mandible is correctly transparent, and the hook survives intact.
 
-### Two traps worth writing down
+### Three traps, all of which cost real time
 
 - `PIL.Image.fromarray` returns a read-only buffer-backed image, and
   `ImageDraw.floodfill` mutates it to **no effect and raises nothing**. Call
   `.copy()` first. The failure mode is a silently empty matte that looks like a
-  working run.
+  perfectly successful run.
 - The source declares sRGB through the PNG `sRGB` chunk, not an embedded ICC
   profile, and Pillow does not carry that chunk through a re-encode.
+- `ImageCms.createProfile` embeds a creation timestamp, which destroys byte
+  reproducibility. See §4.
 
 ---
 
