@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  macOS only. Applied through CODE_SIGN_ENTITLEMENTS[sdk=macosx*]; iOS builds
+	  deliberately use no custom entitlements file, because none of the keys below
+	  mean anything on iOS and carrying them there only risks provisioning-profile
+	  mismatches at archive time.
+	-->
+	<!-- App Sandbox is required for macOS TestFlight and App Store distribution. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- Outgoing network access, for talking to the Dudo-Core API over HTTPS. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>
