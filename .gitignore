@@ -1,0 +1,67 @@
+# Dudo-Apple
+#
+# This is a PUBLIC repository. Nothing signing-related, nothing secret, and
+# nothing machine-local belongs in it. The entries below are a safety net, not
+# a substitute for checking what you are about to commit.
+
+# --- Signing material and secrets: never commit, no exceptions -----------------
+*.mobileprovision
+*.provisionprofile
+*.p12
+*.pfx
+*.cer
+*.certSigningRequest
+*.p8
+*.pem
+*.key
+*.keystore
+.env
+.env.*
+!.env.example
+ExportOptions.plist
+AuthKey_*.p8
+
+# --- Xcode build output -------------------------------------------------------
+build/
+DerivedData/
+*.xcarchive
+*.ipa
+*.app.dSYM.zip
+*.dSYM/
+*.hmap
+*.ipa
+*.moved-aside
+*.o
+*.swiftmodule
+*.swiftsourceinfo
+
+# --- Per-user Xcode state (never shared) --------------------------------------
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.perspectivev3
+*.mode1v3
+*.mode2v3
+*.pbxuser
+
+# Shared schemes ARE tracked on purpose — xcodebuild needs them.
+!*.xcodeproj/xcshareddata/
+!*.xcworkspace/xcshareddata/
+
+# --- Swift Package Manager ----------------------------------------------------
+.build/
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+Packages/
+
+# --- Swift Playgrounds / Instruments -----------------------------------------
+timeline.xctimeline
+playground.xcworkspace
+*.trace
+
+# --- macOS --------------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
