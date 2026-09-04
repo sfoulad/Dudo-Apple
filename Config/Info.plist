@@ -8,8 +8,10 @@
 	  ===================================================================================
 
 	  GENERATE_INFOPLIST_FILE stays YES, so every INFOPLIST_KEY_* build setting still
-	  applies; this file adds only the two things that cannot be expressed as a build
-	  setting, because both are dictionaries.
+	  applies; this file adds only what cannot be expressed as one. Two of the three
+	  entries are dictionaries, which no INFOPLIST_KEY_* can express. The third,
+	  CFBundleIconName, is a plain string that the build setting silently discards —
+	  see its own note below.
 
 	  IT LIVES IN Config/ AND NOT IN Dudo/ ON PURPOSE. The Dudo/ group is a
 	  PBXFileSystemSynchronizedRootGroup, so every file under it is added to the target
@@ -18,6 +20,35 @@
 	  commands produce Info.plist". Keeping it outside the synchronized folder avoids
 	  needing a membership exception to undo an inclusion nobody asked for.
 	-->
+
+	<!--
+	  ===================================================================================
+	  CFBundleIconName — SET HERE BECAUSE THE BUILD SETTING DOES NOT SURVIVE
+	  ===================================================================================
+
+	  App Store validation's ITMS-90713 check is documented against a TOP-LEVEL
+	  CFBundleIconName. Xcode 26.6's actool emits the key only NESTED, inside
+	  CFBundleIcons > CFBundlePrimaryIcon (and again under CFBundleIcons~ipad), and
+	  emits no top-level one at all for iOS. macOS is unaffected: it gets a top-level
+	  CFBundleIconName from actool already.
+
+	  INFOPLIST_KEY_CFBundleIconName WAS TRIED FIRST AND IS A NO-OP ON iOS. The setting
+	  reaches the build — `xcodebuild -showBuildSettings` prints it — and the key is
+	  still absent from the built Info.plist. Xcode treats the icon keys as actool's to
+	  own and drops the manual value. Every other INFOPLIST_KEY_* here does apply, so
+	  this is specific to this key rather than a mistake in how it was set.
+
+	  This file is merged rather than overwritten, which is why setting it here works
+	  where the build setting does not. Verified present in the built product for
+	  iPhone, iPad and device builds.
+
+	  It may well be redundant: a toolchain that strips this key would otherwise ship
+	  bundles its own validator rejects, which argues the nested form is accepted. That
+	  argument cannot be confirmed without an actual upload, and a redundant key costs
+	  nothing — so it stays until an upload proves otherwise.
+	-->
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 
 	<!--
 	  The API origin, from the DUDO_API_BASE_URL build setting. Debug points at a local

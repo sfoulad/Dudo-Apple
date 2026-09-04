@@ -7,8 +7,22 @@ Icon Composer step that applies Apple's Liquid Glass material. They are
 independent — the app builds and archives with a correct icon whether or not the
 Icon Composer step is ever performed.
 
-Source artwork: `Design/AppIcon/Dudo-Source-Flat-1254.png` (1254 × 1254, RGB, no
-alpha), in which the subject is **already inset within the frame by the designer**.
+Source artwork: **two crops, one per platform**, both 1254 × 1254, RGB, no alpha.
+
+| File | Subject | Feeds |
+|---|---|---|
+| `Design/AppIcon/Dudo-Source-iOS-1254.png` | 85.0% of the canvas | the iOS marketing icon |
+| `Design/AppIcon/Dudo-Source-Flat-1254.png` | 57.7% of the canvas | the macOS renditions, and every layered file in §2 |
+
+**Why two.** iOS icons are full bleed — the system masks a square that reaches the
+edges, so the artwork should fill it. macOS icons carry their padding *in* the
+artwork: the visible rounded rect is 824 of 1024 and the remainder is shadow room.
+One crop cannot satisfy both, and using one meant one platform was always wrong.
+The measurements are in §1.
+
+The macOS source keeps its original filename. Renaming it to match would churn
+eight generated binaries and invalidate every reference in §2 for a cosmetic gain,
+so the asymmetry is documented instead of removed.
 
 ---
 
@@ -19,7 +33,7 @@ the classic asset-catalog path and it is what unblocks archiving and TestFlight.
 
 | File | Size | Alpha | Used for |
 |---|---|---|---|
-| `AppIcon-iOS-1024.png` | 1024 | **no** | iPhone and iPad; Xcode derives every runtime size from it |
+| `AppIcon-iOS-1024.png` | 1024 | **no** | iPhone and iPad; Xcode derives every runtime size from it. Built from the **iOS** source |
 | `AppIcon-mac-16x16@1x.png` | 16 | yes | macOS |
 | `AppIcon-mac-16x16@2x.png` | 32 | yes | macOS |
 | `AppIcon-mac-32x32@1x.png` | 32 | yes | macOS |
@@ -40,51 +54,93 @@ mask — pre-rounding it would produce a double-rounded corner.
 The macOS images are the reverse: they carry alpha because the macOS icon is a
 rounded rectangle sitting inside a larger canvas with room for its shadow.
 
-### Geometry — and one number worth a decision
+### Geometry — measured, per platform
 
-**The designer's composition is preserved exactly.** The only geometric operation
+**Each designer composition is preserved exactly.** The only geometric operation
 applied is the 1254 → 1024 downscale. There is no bounding-box re-fit, no
-re-centring, and no additional inset. Adding one would double the inset already
-present in the source.
+re-centring, and no additional inset in either source.
 
-| | Value |
-|---|---|
-| Canvas | 1024 × 1024 |
-| Background | flat `#071342` |
-| Subject bbox in source | x[355:926] y[281:1004] = 571 × 723 |
-| Subject bbox on canvas | x[290:756] y[229:820] = 466 × 590 |
-| **Subject largest dimension** | **57.7% of the canvas** |
-| Apple grid reference | ~80% content area |
-| macOS rounded rect | 824 × 824 centred, corner radius 185.4 |
-| Subject inside that rect | 71.6% of the visible rect; margins L 190, R 168, T 129, B 104 |
+| | iOS source | macOS source |
+|---|---|---|
+| Canvas | 1024 × 1024 | 1024 × 1024 |
+| Background composited over | flat `#071342` | flat `#071342` |
+| Subject bbox in source | x[217:1058] y[144:1210] = 841 × 1066 | x[355:926] y[281:1004] = 571 × 723 |
+| Subject bbox on canvas | x[177:864] y[118:988] = 687 × 870 | x[290:756] y[229:820] = 466 × 590 |
+| **Subject largest dimension** | **85.0% of the canvas** | **57.7% of the canvas** |
+| Clearance from canvas edge | L 177, R 160, T 118, **B 36** | L 290, R 268, T 229, B 204 |
+| Inside the 824 macOS rect | **no — overruns the bottom by 64 px** | yes; margins L 190, R 168, T 129, B 104 |
 
-**The supplied inset is tighter than Apple's grid — 57.7% against roughly 80%.**
-This is recorded rather than silently corrected. The subject reads noticeably small
-inside the system mask on iOS. It is a one-constant change to scale it up if that is
-the preference; it has deliberately not been made.
+**Neither crop is clipped by the iOS mask**, at the n = 5 superellipse or at a
+conservative n = 4. That is worth stating explicitly because it is the opposite of
+the intuition: the subject's extremities sit near the edge **midpoints**, where that
+curve is essentially straight, not in the corners where it bends. The risk that
+actually materialised was on macOS.
 
-Two caveats on that 80% figure:
+**The macOS rect is what forces the split.** Given one crop for both platforms:
 
-- It is the 824/1024 proportion Apple uses for the macOS icon grid. It could not be
-  checked against the current Human Interface Guidelines app-icons page, because that
-  requires network access. **Confirm it before acting on the comparison.**
-- On macOS the discrepancy largely disappears: because the visible icon is the 824
-  rect rather than the full canvas, the same artwork occupies 71.6% of what the user
-  actually sees. The subject sits comfortably inside the rect and is not clipped.
+- the wide crop loses 4244 px of the plume on macOS — the clipped region is exactly
+  x[525:656] y[924:988] on a 1024 canvas, i.e. the tail of the tail feather;
+- the inset crop is clipped nowhere but reads at 57.7% on iOS, against Apple's ~80%
+  grid reference.
 
-The subject is also off-centre in the source by about 1% (bbox centre +13.5, +15.0 px
-of 1254). That is preserved too, on the same principle.
+**One caveat on that 80% figure, unchanged:** it is the 824/1024 proportion Apple
+uses for the macOS icon grid. It could not be checked against the current Human
+Interface Guidelines app-icons page, because that requires network access.
+**Confirm it before acting on the comparison.**
+
+**The iOS bottom clearance is 36 px of 1024 — 3.5%, the tightest margin anywhere in
+this icon.** At the derived runtime sizes that is 4.2 px at 120, 5.3 px at 152, and
+**2.0 px at the 58 px settings rendition**. The masked renders were inspected at 120
+and 152 and the plume reads as clearing the edge, not touching it. It is recorded
+here because it is the number that would break first if the artwork were ever
+recomposed, and because 2 px is not much to lose.
+
+Each subject is also slightly off-centre in its own source. That is preserved too,
+on the same principle.
 
 ### Verified
 
-- `xcodebuild` succeeds for `generic/platform=iOS Simulator` (Debug) and
-  `platform=macOS` (Release).
-- `actool` compiles the catalog with **zero warnings and zero notices**.
-- iOS product: `CFBundleIconName = AppIcon` in `Info.plist`, plus derived
-  `AppIcon60x60@2x.png` and `AppIcon76x76@2x~ipad.png`. That plist key is what App
-  Store validation checks for, and it was absent before this work.
-- macOS product: `Contents/Resources/AppIcon.icns`, `CFBundleIconFile = AppIcon`.
+Measured on 2026-09-05, Xcode 26.6 (17F113), against the split sources.
+
+- `xcodebuild` **BUILD SUCCEEDED** for all four destinations, Release:
+  iPhone 17 simulator, iPad Pro 11-inch (M5) simulator, `platform=macOS`, and
+  `generic/platform=iOS` with signing disabled.
+- `actool` compiles the catalog with **zero warnings and zero errors**.
+- iOS product: derived `AppIcon60x60@2x.png` and `AppIcon76x76@2x~ipad.png`, and an
+  `Assets.car` carrying the 1024 rendition. See the `CFBundleIconName` note below —
+  it is not as simple as it looks.
+- macOS product: `Contents/Resources/AppIcon.icns`, `CFBundleIconFile = AppIcon`,
+  `CFBundleIconName = AppIcon`.
 - `Assets.car` carries all 10 macOS renditions: 16, 32, 64, 128, 256, 512, 1024.
+- The built products were rendered and looked at, not merely listed.
+
+### `CFBundleIconName` — where it comes from, and where it does not
+
+**Xcode 26.6's `actool` does not emit a top-level `CFBundleIconName` for iOS.** It
+emits the key only nested, inside `CFBundleIcons → CFBundlePrimaryIcon` and again
+under `CFBundleIcons~ipad`. This was confirmed on both simulator and device builds.
+macOS is unaffected — it gets a top-level key from `actool` already.
+
+App Store validation's ITMS-90713 check is documented against the **top-level** key,
+so the top-level key is now set explicitly, in `Config/Info.plist`.
+
+**`INFOPLIST_KEY_CFBundleIconName` was tried first and is a no-op on iOS.** The
+setting reaches the build — `xcodebuild -showBuildSettings` prints
+`INFOPLIST_KEY_CFBundleIconName = AppIcon` — and the key is still absent from the
+built `Info.plist`. Xcode treats the icon keys as `actool`'s to own and discards the
+manual value. Every other `INFOPLIST_KEY_*` in this project does apply, so this is
+specific to this key. The setting was removed again rather than left in place
+looking effective. `Config/Info.plist` is *merged* rather than overwritten, which is
+why setting it there works.
+
+**This may well be redundant.** A toolchain that strips the key would otherwise ship
+bundles its own validator rejects, which is a decent argument that the nested form is
+accepted. **That argument has not been confirmed against an actual upload** — doing so
+requires an archive and a submission, which have not been performed. A redundant key
+costs nothing, so it stays until an upload proves otherwise.
+
+Verified present as a top-level key in all three built products: iOS simulator,
+iOS device, macOS.
 
 The `.icns` contains 4 members rather than 10. That is actool's own choice — it emits
 a legacy `.icns` companion while the complete icon data lives in `Assets.car`, and it
@@ -107,8 +163,14 @@ the Xcode project and are not compiled; they are design inputs.
 | `Dudo-Foreground-Dark.png` | as above with the brightest cream held back 8% |
 | `Dudo-Foreground-Mono.png` | greyscale remap for the Mono / tinted appearance |
 | `Dudo-Features-Default.png` | optional: face, beak and eye only, pixel-aligned on top of the foreground |
-| `Dudo-Source-Flat-1254.png` | the original flat artwork — the input everything else derives from |
+| `Dudo-Source-Flat-1254.png` | the inset flat artwork — **the input every layer above derives from**, and the macOS renditions |
+| `Dudo-Source-iOS-1254.png` | the wide flat artwork — the iOS marketing icon only; **no layer derives from it** |
 | `make_app_icon.py` | the generator that produces every other file above, and the appiconset |
+
+**Every layer comes from the inset crop, not the wide one.** The layers feed the
+macOS-style composition, and re-deriving them from the wide crop would silently
+change what §3 tells you to import. If Liquid Glass is ever pursued for iOS
+specifically, that is a decision to take deliberately — see §5.
 
 The background layers are **flat fields, not the original background**. The source
 carries roughly ±2 per channel of noise, which composites badly under the material
@@ -223,18 +285,34 @@ generated PNGs. It requires only numpy and Pillow, installs nothing, reaches no
 network, and touches no signing or App Store state. It writes PNGs only —
 `Contents.json` and this document are maintained by hand.
 
-Output is **byte-reproducible**: two consecutive runs produce 17 of 17 identical
-files. That needed one deliberate fix. `ImageCms.createProfile` stamps the current
-time into the ICC header's creation-date field, so every run would otherwise emit
-different bytes from identical pixels and dirty every binary in git for no reason.
-The script zeroes that field, which the spec permits; the profile-ID field is all
-zeros, so no checksum is invalidated.
+Output is **byte-reproducible**: two consecutive runs produce **19 of 19** identical
+files, re-verified after the split. That needed one deliberate fix.
+`ImageCms.createProfile` stamps the current time into the ICC header's creation-date
+field, so every run would otherwise emit different bytes from identical pixels and
+dirty every binary in git for no reason. The script zeroes that field, which the spec
+permits; the profile-ID field is all zeros, so no checksum is invalidated.
 
 ### Method
 
-- Sample the background from the border ring — **median, not a guessed hex**. An
-  independent median over the 8-pixel ring gives `#071343`; the specified brand
-  value `#071342` differs by one unit of blue and is what is used.
+- **Key each source against the right background, which is not the same question as
+  what it is composited over.** Everything is composited over the brand `#071342`, so
+  the two platforms ship an identical field. The *keying* value is what the flood fill
+  measures distance from, and the fill fails if a border pixel sits further from it
+  than the tolerance of 8.0. Worst border-ring distance, measured:
+
+  | source | vs brand `#071342` | vs its own sampled field |
+  |---|---|---|
+  | iOS (`#091440`) | **7.68** | 5.10 |
+  | macOS (`#071343`) | 7.00 | 6.63 |
+
+  The iOS crop against the brand navy leaves **0.32 of headroom**. It passes, and that
+  is far too close to depend on, so it is keyed against its own sampled field. The
+  macOS crop keeps the brand navy: it has a full unit of headroom there, and it is the
+  value that produced the committed, verified renditions. Switching it too would shift
+  blue by one unit, change nothing visible, rewrite all fourteen macOS and layer
+  binaries, and push one background pixel to a round-trip error of 9.00 — breaking the
+  "every error > 8 is in the rim band" property asserted below. **Change one thing at
+  a time.**
 - Key by **flood fill from the border**, not by colour threshold. The beak and the
   shadowed facets sit close to navy; a threshold punches holes through them. A flood
   fill cannot reach a dark facet sealed inside the subject, whatever its colour.
@@ -252,12 +330,15 @@ zeros, so no checksum is invalidated.
 The risk is that a tolerance wide enough to swallow the background noise also eats
 the beak. On this artwork there is a clean window, and both thresholds sit inside it:
 
-| Measurement | Value |
-|---|---|
-| Greatest distance from `#071342` among **background** pixels | **7.87** |
-| Smallest distance among **subject core** pixels | **12.41** |
-| Background tolerance used | 8.0 |
-| Core tolerance used | 25.0 |
+| Measurement | iOS source | macOS source |
+|---|---|---|
+| Greatest distance among **background** pixels | **7.87** | **7.87** |
+| Smallest distance among **subject core** pixels | **15.03** | **12.41** |
+| Background tolerance used | 8.0 | 8.0 |
+| Core tolerance used | 25.0 | 25.0 |
+
+Distances are measured against each source's own keying background — see Method
+above. Both windows are clean, and the iOS crop's is the wider of the two.
 
 Raising the tolerance from 8 to 25 costs 1,672 px (0.61% of the subject) — that is
 the anti-aliased rim being reclassified as *band* for unmixing, which is intended,
@@ -270,35 +351,38 @@ rather than trusting the aggregate.
 
 ### Edge verification
 
-Anti-aliased rim: 1,653 px of 1,572,516.
+Both sources are verified independently, because they are keyed independently and a
+defect could appear in one and not the other. Anti-aliased rim: **2,770 px** (iOS)
+and **1,673 px** (macOS), of 1,572,516.
 
-**Round trip.** Recompositing the matte over the sampled navy and diffing against the
+**Round trip.** Recompositing the matte over the keying navy and diffing against the
 source:
 
-| Region | Max error | Pixels > 8 |
+| Region | iOS: max error / px > 8 | macOS: max error / px > 8 |
 |---|---|---|
-| Solid subject | **0.00** — reconstructs exactly | 0 |
-| Background | 8.00 — bounded exactly by the flood tolerance | 0 |
-| Anti-aliased rim | 16.87 | 256 |
+| Solid subject | **0.00** — reconstructs exactly / 0 | **0.00** — reconstructs exactly / 0 |
+| Background | 8.00 — bounded by the flood tolerance / 0 | 8.00 — bounded by the flood tolerance / 0 |
+| Anti-aliased rim | 19.97 / 927 | 16.87 / 256 |
 
-Every error above 8 in the whole image is confined to the rim band.
+Every error above 8 in the whole image is confined to the rim band, **for both
+sources**.
 
-**No bleed.** The 10,292 fully-transparent pixels immediately outside the subject
-deviate from the backdrop by **exactly 0.0000** when composited. A halo would appear
-here first.
+**No bleed.** The fully-transparent pixels immediately outside the subject — 14,975
+on the iOS source, 10,292 on the macOS source — deviate from the backdrop by
+**exactly 0.0000** when composited. A halo would appear here first.
 
 **Blue-bias test.** A surviving navy fringe shows up as blue bias (B − R) when the
 foreground is composited over a neutral backdrop, measured against an
 un-decontaminated control:
 
-| | Mean B − R | px > 15 |
+| | iOS: mean B − R / px > 15 | macOS: mean B − R / px > 15 |
 |---|---|---|
-| Shipped (decontaminated) | **−1.81** | 10 |
-| Naive (not decontaminated) | +3.45 | 0 |
+| Shipped (decontaminated) | **−3.08** / 4 | **−1.81** / 10 |
+| Naive (not decontaminated) | +4.32 / 4 | +3.45 / 0 |
 
-Decontamination removes the systematic navy cast — the mean crosses from blue to
-faintly warm — at the cost of 10 sub-pixel outliers, which sit at a mean alpha of
-0.078 and are gamut-clipping artefacts rather than a visible fringe.
+Decontamination removes the systematic navy cast on both — the mean crosses from
+blue to faintly warm — at the cost of a handful of sub-pixel outliers, which sit at
+very low alpha and are gamut-clipping artefacts rather than a visible fringe.
 
 Note that "over white" and "over mid-grey" give identical B − R by construction,
 since both backdrops are neutral. It is one test, not two.
@@ -326,7 +410,16 @@ and the cream mandible is correctly transparent, and the hook survives intact.
   independently authored art. Liquid Glass refracts and lights layers relative to one
   another; genuinely separate art would give the material more to work with. The
   parrot has no internal depth to recover. This is the real ceiling on the result.
-- **Content inset is tighter than Apple's grid** — 57.7% against roughly 80%. See §1.
+- **~~Content inset is tighter than Apple's grid~~ — resolved by the per-platform
+  split.** iOS now uses the wide crop at 85.0%. The 57.7% figure still describes the
+  macOS source, where it is correct rather than a limitation: it occupies 71.6% of
+  the 824 rect the user actually sees.
+- **The iOS bottom clearance is 36 px of 1024**, which is 2.0 px at the 58 px
+  settings rendition. Not clipped, and inspected at 120 and 152 — but it is the first
+  thing that would break if the artwork were recomposed. See §1.
+- **The layered sources derive from the macOS crop only.** If Liquid Glass is
+  pursued for iOS, the layers would need re-deriving from the wide crop, and §3's
+  import instructions would change with them. Not done, and not assumed.
 - **Small sizes.** At 16 px the mark still reads as a red parrot head with a pale
   face, but the faceting and the beak structure are gone — below the resolution of
   the grid. Apple's guidance is to simplify artwork at small sizes, and that means a

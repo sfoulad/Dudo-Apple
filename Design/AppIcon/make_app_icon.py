@@ -11,15 +11,37 @@ Run it by hand, from anywhere:
 
     python3 Design/AppIcon/make_app_icon.py
 
-Input : Design/AppIcon/Dudo-Source-Flat-1254.png — the flat 1254x1254 artwork,
-        in which the designer has already inset the subject within the frame.
+Inputs — TWO sources, one per platform, because the platforms genuinely differ:
+
+  Dudo-Source-iOS-1254.png    the wide crop, subject at 85.0% of the canvas.
+                              iOS icons are FULL BLEED: the system masks a square
+                              that reaches the edges, so the artwork should fill it.
+  Dudo-Source-Flat-1254.png   the inset crop, subject at 57.7%. macOS icons carry
+                              their padding IN the artwork: the visible rounded
+                              rect is 824 of 1024 and the rest is shadow room.
+
 Output: (a) the classic AppIcon.appiconset that the app actually ships, and
         (b) the layered PNGs in this directory, for manual import into
             Icon Composer. See docs/app-icon.md.
 
-The designer's composition is preserved exactly. The only geometric operation is
-a 1254 -> 1024 downscale: no bounding-box re-fit, no re-centring, no additional
-inset. The source is already inset, and adding another would double it.
+One crop for both platforms means one of them is always wrong. Measured, on a 1024
+canvas: the wide crop overruns the macOS 824 rounded rect by 64px at the bottom and
+loses 4244px of the plume (x[525:656] y[924:988]); the inset crop is clipped
+nowhere but reads at 57.7% on iOS against Apple's ~80% grid reference. Neither is
+clipped by the iOS superellipse at n=5 or at a conservative n=4 — the subject's
+extremities sit near the edge MIDPOINTS, where that curve is essentially straight,
+not in the corners where it bends.
+
+The designer's composition is preserved exactly in both. The only geometric
+operation is a 1254 -> 1024 downscale: no bounding-box re-fit, no re-centring, no
+additional inset. Each source is already composed for its own platform.
+
+The two sources carry slightly different fields (#091440 and #071343). Whatever
+each is keyed against, both are composited over the single brand navy, so the
+shipped field is identical on both platforms.
+
+They are keyed differently, and the asymmetry is deliberate rather than an
+oversight — see KEY_BG below for the measured reason.
 
 Requires only numpy and Pillow. It installs nothing, reaches no network, and
 touches no signing, provisioning, or App Store state.
@@ -37,26 +59,56 @@ from PIL import Image, ImageCms, ImageDraw, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
-SRC = os.path.join(HERE, "Dudo-Source-Flat-1254.png")
+# The macOS source keeps its original filename. Renaming it to match the iOS one
+# would churn eight generated binaries and invalidate every reference in
+# docs/app-icon.md section 2 for a cosmetic gain; the asymmetry is documented instead.
+SRC_IOS = os.path.join(HERE, "Dudo-Source-iOS-1254.png")
+SRC_MAC = os.path.join(HERE, "Dudo-Source-Flat-1254.png")
 ICONSET = os.path.join(REPO, "Dudo", "Assets.xcassets", "AppIcon.appiconset")
 
 CANVAS = 1024
 
-# Sampled from the artwork, not guessed. An independent median over the 8px
-# border ring gives #071343; the brand value #071342 differs by one unit of blue,
-# below any perceptual threshold, and is what is used.
+# The brand navy. Both sources are composited over THIS, whatever their own field
+# samples at, so the two platforms ship an identical background. An independent
+# median over the macOS source's 8px border ring gives #071343; the brand value
+# #071342 differs by one unit of blue, below any perceptual threshold.
 BG = np.array([7.0, 19.0, 66.0])
 BG_DARK_SCALE = 0.62
+
+# WHAT EACH SOURCE IS KEYED AGAINST, and why they differ.
+#
+# The keying background is not the same question as the compositing background.
+# Everything is composited over BG; this is only the value the flood fill measures
+# distance from, and the fill fails if a border pixel sits further than BG_TOL from
+# it. Worst border-ring distance, measured:
+#
+#   source  vs brand #071342   vs its own sampled field
+#   iOS         7.68                    5.10
+#   macOS       7.00                    6.63
+#
+# Tolerance is 8.0. The iOS crop against the brand navy leaves 0.32 of headroom --
+# it happens to pass, and that is far too close to depend on, so it is keyed
+# against its own field instead.
+#
+# The macOS crop keeps the brand navy. It has a full unit of headroom there, and it
+# is the value that produced the committed, verified renditions. Switching it to
+# its own sampled field shifts blue by one unit, changes nothing anyone can see,
+# rewrites all fourteen macOS and layer binaries, and pushes one background pixel
+# to a round-trip error of 9.00 -- which breaks the "every error >8 is in the rim
+# band" property the verification asserts. A one-unit gain in headroom does not buy
+# that. Change one thing at a time.
+KEY_BG = {"ios": "sampled", "mac": BG}
 
 # macOS classic grid: an 824x824 rounded rect on a 1024 canvas, radius 22.5%.
 MAC_RECT = 824
 MAC_RADIUS = 185.4
 
 # Keying tolerances, both chosen from measured separation rather than by feel.
-# Background noise on this source tops out at distance 7.87 from BG across the
-# whole border ring; the subject core starts at 12.41 and the dark beak does not
-# begin to erode until roughly 60. Both thresholds sit inside that window.
-# `--verify` prints the measurements that justify them.
+# Against each source's own sampled background, noise tops out at distance 7.87
+# across the whole border ring, while the subject core starts at 13.15 (macOS
+# source) and 15.03 (iOS source); the dark beak does not begin to erode until
+# roughly 60. Both thresholds sit inside that window for both sources.
+# `--verify` prints the measurements that justify them, per source.
 BG_TOL = 8.0
 CORE_TOL = 25.0
 
@@ -133,6 +185,22 @@ def flood_from_border(candidate):
 
 
 Matte = namedtuple("Matte", "alpha rgb diag")
+
+
+def sample_background(a, ring=8):
+    """
+    Median of the border ring — each source's OWN field, not the brand constant.
+
+    The two sources were exported with slightly different backgrounds (#091440 and
+    #071343). Keying either one against a constant costs headroom it does not need
+    to spend: the wide crop's worst border pixel sits 7.68 from the brand navy
+    against a tolerance of 8.0, and 5.10 from its own. The field the artwork
+    actually has is the field to key against; the brand navy is what it gets
+    composited over afterwards.
+    """
+    border = np.concatenate([a[:ring].reshape(-1, 3), a[-ring:].reshape(-1, 3),
+                             a[:, :ring].reshape(-1, 3), a[:, -ring:].reshape(-1, 3)])
+    return np.median(border, axis=0)
 
 
 def build_matte(a, bg=BG, bg_tol=BG_TOL, core_tol=CORE_TOL, window=9):
@@ -273,7 +341,7 @@ def rounded_rect_mask(size, rect, radius, supersample=4):
 
 
 # --------------------------------------------------------------------------
-def report_geometry(m, src_px):
+def report_geometry(m, src_px, role):
     x0, y0, x1, y1 = bbox_of(m.alpha)
     sc = CANVAS / src_px
     rect_lo, rect_hi = (CANVAS - MAC_RECT) / 2, (CANVAS + MAC_RECT) / 2
@@ -281,18 +349,34 @@ def report_geometry(m, src_px):
     print(f"  subject bbox on canvas : x[{x0*sc:.0f}:{x1*sc:.0f}] "
           f"y[{y0*sc:.0f}:{y1*sc:.0f}] = {(x1-x0)*sc:.0f}x{(y1-y0)*sc:.0f}")
     print(f"  largest dimension      : {max(x1-x0, y1-y0)/src_px*100:.1f}% of canvas "
-          f"(Apple grid reference ~80%; the source is already inset, see docs/app-icon.md)")
+          f"(Apple grid reference ~80%)")
     fits = (x0*sc >= rect_lo and x1*sc <= rect_hi
             and y0*sc >= rect_lo and y1*sc <= rect_hi)
-    print(f"  inside the {MAC_RECT} macOS rect? {fits}  "
-          f"(margins L={x0*sc-rect_lo:.0f} R={rect_hi-x1*sc:.0f} "
-          f"T={y0*sc-rect_lo:.0f} B={rect_hi-y1*sc:.0f})")
-    print(f"  vs the visible macOS rect: {max(x1-x0, y1-y0)*sc/MAC_RECT*100:.1f}%")
+    if role == "mac":
+        # Only the macOS source has to fit the rect; the iOS one is full bleed and
+        # deliberately overruns it, which is exactly why the sources are split.
+        print(f"  inside the {MAC_RECT} macOS rect? {fits}  "
+              f"(margins L={x0*sc-rect_lo:.0f} R={rect_hi-x1*sc:.0f} "
+              f"T={y0*sc-rect_lo:.0f} B={rect_hi-y1*sc:.0f})")
+        print(f"  vs the visible macOS rect: {max(x1-x0, y1-y0)*sc/MAC_RECT*100:.1f}%")
+        if not fits:
+            print("  WARNING: the macOS source does not fit its own rect -- "
+                  "the rendition will be clipped")
+    else:
+        # Full bleed, so what matters is clearance from the canvas edge, not a rect.
+        print(f"  clearance from canvas edge: L={x0*sc:.0f} R={CANVAS-x1*sc:.0f} "
+              f"T={y0*sc:.0f} B={CANVAS-y1*sc:.0f} px  "
+              f"(tightest {min(x0*sc, CANVAS-x1*sc, y0*sc, CANVAS-y1*sc)/CANVAS*100:.1f}% "
+              f"of canvas)")
+        # The smallest rendition iOS derives is the 29pt @2x settings icon.
+        tight = min(x0*sc, CANVAS-x1*sc, y0*sc, CANVAS-y1*sc) / CANVAS
+        print(f"  that clearance at 120px = {tight*120:.1f}px, "
+              f"152px = {tight*152:.1f}px, 58px = {tight*58:.1f}px")
 
 
-def verify(a, m):
+def verify(a, m, bg=BG):
     """Print the evidence behind the tolerances and the edge quality."""
-    d = np.linalg.norm(a - BG, axis=2)
+    d = np.linalg.norm(a - bg, axis=2)
     print("\n  -- keying evidence --")
     print(f"  greatest distance among background pixels : "
           f"{m.diag['max_background_distance']}")
@@ -303,7 +387,7 @@ def verify(a, m):
     print(f"  navy-coloured pixels sealed inside the subject, preserved by the "
           f"flood fill: {int((~flood_from_border(d < BG_TOL) & (d < BG_TOL)).sum())}")
 
-    rt = m.rgb * m.alpha[..., None] + BG * (1 - m.alpha[..., None])
+    rt = m.rgb * m.alpha[..., None] + bg * (1 - m.alpha[..., None])
     err = np.abs(rt - a).max(axis=2)
     solid, clear = m.alpha == 1.0, m.alpha == 0.0
     partial = ~solid & ~clear
@@ -344,34 +428,57 @@ def main():
                          "(outside the repository, for inspection only)")
     args = ap.parse_args()
 
-    if not os.path.exists(SRC):
-        sys.exit(f"source artwork not found: {SRC}")
+    for path in (SRC_IOS, SRC_MAC):
+        if not os.path.exists(path):
+            sys.exit(f"source artwork not found: {path}")
 
-    a = np.asarray(Image.open(SRC).convert("RGB")).astype(np.float64)
-    src_px = a.shape[0]
-    m = build_matte(a)
+    # Both sources are composited over the brand navy, so the two platforms differ
+    # in composition only -- never in colour. They are KEYED differently; see KEY_BG.
+    loaded = {}
+    for role, path in (("ios", SRC_IOS), ("mac", SRC_MAC)):
+        a = np.asarray(Image.open(path).convert("RGB")).astype(np.float64)
+        choice = KEY_BG[role]
+        # `is_sampled` rather than `choice == "sampled"`: the other branch holds a
+        # numpy array, and comparing one to a string yields an array, not a bool.
+        is_sampled = isinstance(choice, str)
+        bg = sample_background(a) if is_sampled else choice
+        m = build_matte(a, bg=bg)
+        loaded[role] = (a, bg, m, a.shape[0])
+        print(f"{role} source {path} ({a.shape[0]}x{a.shape[0]})")
+        print("  keyed against #%02X%02X%02X (%s), "
+              "composited over brand #%02X%02X%02X"
+              % (*bg.astype(int),
+                 "sampled from its own border ring" if is_sampled
+                 else "the brand constant",
+                 *BG.astype(int)))
+        for k, v in m.diag.items():
+            print(f"  {k}: {v}")
+        report_geometry(m, a.shape[0], role)
+
+    # The macOS source is also the layer source for Icon Composer: those layers
+    # feed the macOS-style composition, and re-deriving them from the iOS crop
+    # would silently change what section 3 of docs/app-icon.md tells you to import.
+    a, bg_mac, m, src_px = loaded["mac"]
     cls = classify(m.rgb, m.alpha)
     mono = mono_values(m.rgb, m.alpha, cls)
-
-    print(f"source {SRC} ({src_px}x{src_px})")
-    print("background #%02X%02X%02X" % tuple(BG.astype(int)))
-    for k, v in m.diag.items():
-        print(f"  {k}: {v}")
-    report_geometry(m, src_px)
 
     navy_field = np.broadcast_to(BG, (CANVAS, CANVAS, 3)).copy()
     navy_dark = np.round(BG * BG_DARK_SCALE)
     fg = to_canvas(m.rgb, m.alpha)
 
     # ---- the shipping asset catalog ---------------------------------------
-    # Opaque and square: Apple rejects marketing icons carrying an alpha
-    # channel, and the system applies its own mask, so pre-rounding the corners
-    # would double-round them.
-    ios = over(fg, navy_field)
-    save_rgb(ios, os.path.join(ICONSET, "AppIcon-iOS-1024.png"))
+    # Opaque and square, and built from the WIDE crop: iOS masks a full-bleed
+    # square, so the artwork should fill it. Apple rejects marketing icons
+    # carrying an alpha channel, and the system applies its own mask, so
+    # pre-rounding the corners would double-round them.
+    _, _, m_ios, _ = loaded["ios"]
+    ios_marketing = over(to_canvas(m_ios.rgb, m_ios.alpha), navy_field)
+    save_rgb(ios_marketing, os.path.join(ICONSET, "AppIcon-iOS-1024.png"))
 
     # macOS is the reverse: the icon is a rounded rect inside a larger canvas,
-    # with alpha and room for its own shadow.
+    # with alpha and room for its own shadow -- so it uses the INSET crop, which
+    # is the only one that fits the rect without losing the plume.
+    ios = over(fg, navy_field)
     mask = np.asarray(rounded_rect_mask(CANVAS, MAC_RECT, MAC_RADIUS)) / 255.0
     shadow = Image.fromarray((mask * 255).astype(np.uint8), "L").copy() \
         .filter(ImageFilter.GaussianBlur(14))
@@ -415,19 +522,29 @@ def main():
               os.path.join(HERE, "Dudo-Features-Default.png"))
 
     print(f"\n  wrote {1 + len(MAC_SLOTS)} files to {ICONSET}")
-    print(f"  wrote 6 layer sources to {HERE}")
+    print(f"    AppIcon-iOS-1024.png      <- {os.path.basename(SRC_IOS)}")
+    print(f"    AppIcon-mac-*.png ({len(MAC_SLOTS)})    <- {os.path.basename(SRC_MAC)}")
+    print(f"  wrote 6 layer sources to {HERE} <- {os.path.basename(SRC_MAC)}")
 
     if args.verify:
-        verify(a, m)
+        for role in ("ios", "mac"):
+            a_v, bg_v, m_v, _ = loaded[role]
+            print(f"\n================ {role} source ================")
+            verify(a_v, m_v, bg=bg_v)
 
     if args.diagnostics:
         out = os.path.abspath(args.diagnostics)
         os.makedirs(out, exist_ok=True)
-        for name, col in (("magenta", [255., 0., 255.]), ("white", [255.] * 3)):
-            save_rgb(over(fg, np.broadcast_to(np.array(col), (CANVAS, CANVAS, 3))),
-                     os.path.join(out, f"halo-check-{name}.png"))
+        # Both foregrounds, because the two sources are keyed independently and a
+        # halo could appear in one and not the other.
+        for role, layer in (("mac", fg), ("ios", to_canvas(m_ios.rgb, m_ios.alpha))):
+            for name, col in (("magenta", [255., 0., 255.]), ("white", [255.] * 3)):
+                save_rgb(over(layer, np.broadcast_to(np.array(col), (CANVAS, CANVAS, 3))),
+                         os.path.join(out, f"halo-check-{role}-{name}.png"))
         Image.fromarray((m.alpha * 255).astype(np.uint8), "L") \
-            .save(os.path.join(out, "alpha.png"))
+            .save(os.path.join(out, "alpha-mac.png"))
+        Image.fromarray((m_ios.alpha * 255).astype(np.uint8), "L") \
+            .save(os.path.join(out, "alpha-ios.png"))
         for px in (16, 32, 64):
             Image.fromarray(np.clip(fg_mono, 0, 255).astype(np.uint8), "RGBA") \
                 .resize((px, px), Image.LANCZOS).resize((256, 256), Image.NEAREST) \
