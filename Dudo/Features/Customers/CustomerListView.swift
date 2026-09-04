@@ -12,6 +12,14 @@ struct CustomerListView: View {
     /// True in a split view, where a row selects rather than pushes.
     let usesSelection: Bool
 
+    /// Leaving the current session. Absent in previews and wherever no session is above this
+    /// view, in which case no sign-out item appears — see `DudoSignOutAction`.
+    ///
+    /// On macOS the same action is also in the application menu, which is where a Mac user looks
+    /// for it. Having it in both places is not duplication: it is the two platforms' conventions
+    /// being followed rather than one being imposed on the other.
+    @Environment(\.dudoSignOut) private var signOut
+
     var body: some View {
         content
             .navigationTitle("Customers")
@@ -185,9 +193,25 @@ struct CustomerListView: View {
 
     // MARK: - Empty and failed
 
+    /// What an empty directory means, which is not always the same thing.
+    ///
+    /// ===========================================================================================
+    /// "NO CUSTOMERS YET" AND "NOWHERE TO PUT ONE" ARE DIFFERENT SITUATIONS
+    /// ===========================================================================================
+    ///
+    /// A principal authorized over no Business gets an EMPTY PAGE from `ListCustomers` rather than
+    /// a failure, so the two are identical on the wire and this screen used to show the same
+    /// thing for both: "No customers yet", with an Add Customer button. That was actively
+    /// misleading — the button opened a form that could never be submitted, because
+    /// `business_id` is required and there was no value to supply.
+    ///
+    /// One of these is fixable by the person reading it and the other is not, so they are told
+    /// apart before anything else is decided.
     @ViewBuilder
     private var emptyState: some View {
-        if model.isSearching {
+        if model.hasNoAuthorizedBusinesses {
+            noBusinessState
+        } else if model.isSearching {
             ContentUnavailableView {
                 Label("No matches", systemImage: "magnifyingglass")
             } description: {
@@ -222,6 +246,23 @@ struct CustomerListView: View {
         }
     }
 
+    /// The principal is authorized over no Business.
+    ///
+    /// IT OFFERS NO ACTION, DELIBERATELY. There is nothing this person can press that would help:
+    /// no contract creates a Business, and `0020` — which decides how a principal comes to be
+    /// authorized over one — is still landing. An interface that offered a button here would be
+    /// offering an operation the platform does not have.
+    ///
+    /// It says who can change it instead, because "ask your administrator" is the actual next
+    /// step and a screen that withholds it leaves someone staring at a wall.
+    private var noBusinessState: some View {
+        ContentUnavailableView {
+            Label("No business available", systemImage: "briefcase")
+        } description: {
+            Text("Customers belong to a business, and your account is not part of one yet. Ask whoever administers your Dudo organisation to add you to a business, then pull down to refresh.")
+        }
+    }
+
     private func failure(_ error: CustomerDirectoryError) -> some View {
         ContentUnavailableView {
             Label(error.errorDescription ?? "Something went wrong", systemImage: error.symbolName)
@@ -244,6 +285,14 @@ struct CustomerListView: View {
                 model.isPresentingCreate = true
             }
             .keyboardShortcut("n", modifiers: .command)
+            // DISABLED WHEN THERE IS NOWHERE TO FILE A CUSTOMER. A control that opens a form
+            // which can never be submitted is the dead end this replaced, and a visibly
+            // unavailable button is a better answer than a form that traps someone.
+            //
+            // This is PRESENTATION AND NOT ENFORCEMENT. Core validates every `business_id`
+            // against the authenticated principal on every call and would refuse the same
+            // request whether or not this line existed.
+            .disabled(!model.canCreateCustomer)
         }
         ToolbarItem(placement: .automatic) {
             Menu {
@@ -260,6 +309,13 @@ struct CustomerListView: View {
                     Task { await model.refresh() }
                 }
                 .keyboardShortcut("r", modifiers: .command)
+
+                if let signOut {
+                    Divider()
+                    Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right") {
+                        signOut()
+                    }
+                }
 
                 Divider()
                 Text(DudoBuild.label)

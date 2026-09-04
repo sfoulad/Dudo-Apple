@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  ===================================================================================
+	  THIS FILE IS A PARTIAL Info.plist AND IS MERGED WITH THE GENERATED ONE.
+	  ===================================================================================
+
+	  GENERATE_INFOPLIST_FILE stays YES, so every INFOPLIST_KEY_* build setting still
+	  applies; this file adds only the two things that cannot be expressed as a build
+	  setting, because both are dictionaries.
+
+	  IT LIVES IN Config/ AND NOT IN Dudo/ ON PURPOSE. The Dudo/ group is a
+	  PBXFileSystemSynchronizedRootGroup, so every file under it is added to the target
+	  automatically — an Info.plist there would be copied into the bundle as a RESOURCE
+	  as well as being processed as the Info.plist, and the build fails with "multiple
+	  commands produce Info.plist". Keeping it outside the synchronized folder avoids
+	  needing a membership exception to undo an inclusion nobody asked for.
+	-->
+
+	<!--
+	  The API origin, from the DUDO_API_BASE_URL build setting. Debug points at a local
+	  `wrangler dev`; Release is deliberately EMPTY, because no Dudo server is deployed
+	  and a Release build carrying a developer's laptop address is a build that fails
+	  silently in a tester's hands. An empty value is a state the app understands: the
+	  sign-in screen says there is no server and offers the sample data instead.
+	-->
+	<key>DudoAPIBaseURL</key>
+	<string>$(DUDO_API_BASE_URL)</string>
+
+	<!--
+	  ===================================================================================
+	  APP TRANSPORT SECURITY — ONE NARROW EXCEPTION, AND NOT THE BROAD ONE
+	  ===================================================================================
+
+	  NSAllowsLocalNetworking permits cleartext HTTP to loopback, .local names and the
+	  private IP ranges, and NOTHING ELSE. Every public host still requires HTTPS with
+	  ATS's full requirements intact.
+
+	  It is here because a Dudo backend under development is `wrangler dev` over plain
+	  HTTP, reached either as localhost from a simulator or as a Mac's LAN address from a
+	  device on the same network. The alternatives were worse: NSAllowsArbitraryLoads
+	  would disable ATS for every host including production, and shipping no exception at
+	  all would mean the transport could not be exercised on a real device before it is
+	  exercised in front of a customer.
+
+	  WHAT IT DOES NOT DO, STATED SO IT IS NOT ASSUMED: it does not make a plain-HTTP
+	  connection safe. The derived login secret and the session credential both cross it,
+	  and on a shared network both are readable. The sign-in screen shows an explicit
+	  "unencrypted connection" warning whenever the configured base URL is not HTTPS, and
+	  that warning is the control here — this key only stops the OS from making the
+	  development case impossible.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

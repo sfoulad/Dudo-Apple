@@ -70,6 +70,54 @@ final class CustomerDirectoryModel {
     private(set) var isLoadingMore = false
     private(set) var businesses: [BusinessReference] = []
 
+    /// How far the authorized-business set has got.
+    ///
+    /// ===========================================================================================
+    /// THIS EXISTS BECAUSE AN EMPTY ARRAY WAS ANSWERING THREE DIFFERENT QUESTIONS
+    /// ===========================================================================================
+    ///
+    /// `businesses == []` used to mean "still loading", "loaded and there are none", and "the
+    /// request failed" — indistinguishably. Every screen that consulted it therefore had to guess,
+    /// and the create form guessed "still loading", which is how it came to show a spinner that
+    /// could never stop while Save stayed permanently disabled and nothing explained why.
+    ///
+    /// The three are genuinely different situations and only one of them is temporary, so they
+    /// are three cases here rather than one sentinel value.
+    enum BusinessesPhase: Equatable {
+        case idle
+        case loading
+        /// The set is known. It may legitimately be EMPTY — see `hasNoAuthorizedBusinesses`.
+        case loaded
+        case failed(CustomerDirectoryError)
+    }
+
+    private(set) var businessesPhase: BusinessesPhase = .idle
+
+    /// The principal is authorized over no Business at all.
+    ///
+    /// THIS IS A REAL AND CURRENTLY COMMON STATE, NOT AN ERROR. A principal whose membership
+    /// carries no role, or an Organization that has no Business yet, both land here — and until
+    /// `0020` lands it is what a freshly seeded account sees. `ListCustomers` answers it with an
+    /// EMPTY PAGE rather than a failure, which is why it cannot be detected from the directory
+    /// request alone and needs its own question.
+    ///
+    /// It is only ever true once the set is actually known. While loading it is false, so no
+    /// screen can mistake "not yet" for "none".
+    var hasNoAuthorizedBusinesses: Bool {
+        businessesPhase == .loaded && businesses.isEmpty
+    }
+
+    /// Whether a customer can be filed anywhere.
+    ///
+    /// `business_id` is REQUIRED on CreateCustomer and the server never infers one, so with no
+    /// authorized Business there is no request this client could construct. Offering the form
+    /// anyway is what produced the dead end.
+    ///
+    /// USED TO DISABLE CONTROLS, WHICH IS PRESENTATION AND NOT ENFORCEMENT. Core re-validates
+    /// every `business_id` against the authenticated principal on every call, and would refuse
+    /// exactly the same request if this property were removed.
+    var canCreateCustomer: Bool { !hasNoAuthorizedBusinesses }
+
     var hasMorePages: Bool { nextCursor != nil }
 
     // MARK: Interface state
@@ -147,8 +195,23 @@ final class CustomerDirectoryModel {
         }
     }
 
+    /// Loads the Businesses this principal may file customers into.
+    ///
+    /// THE FAILURE IS RECORDED RATHER THAN SWALLOWED. It used to collapse into an empty array,
+    /// which made a network failure indistinguishable from a principal who genuinely has no
+    /// Business — and the second is a state to explain while the first is a state to retry.
     func loadBusinesses() async {
-        businesses = (try? await businessProvider.authorizedBusinesses()) ?? []
+        businessesPhase = .loading
+        do {
+            businesses = try await businessProvider.authorizedBusinesses()
+            businessesPhase = .loaded
+        } catch is CancellationError {
+            businessesPhase = .idle
+        } catch {
+            // The previously known set is kept. It is stale, not wrong, and discarding it would
+            // turn a failed refresh into a screen that claims the principal has no Businesses.
+            businessesPhase = .failed(error.asCustomerDirectoryError)
+        }
     }
 
     private func firstPage() async throws -> CustomerPage {

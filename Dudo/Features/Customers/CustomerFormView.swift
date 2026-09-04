@@ -73,6 +73,15 @@ struct CustomerFormView: View {
             }
         }
         .onAppear { prepare() }
+        // The form is reachable on macOS by ⌘N before the directory has ever loaded, so it cannot
+        // assume someone else has already asked for the Business set. Without this, `.idle` would
+        // render the loading branch with nothing running to end it — the same never-stopping
+        // spinner, arrived at from a different direction.
+        .task {
+            if model.businessesPhase == .idle {
+                await model.loadBusinesses()
+            }
+        }
         .onChange(of: model.businesses.count) { _, _ in
             if mode.isCreate, businessID.isEmpty {
                 businessID = model.businesses.first?.id ?? ""
@@ -114,15 +123,68 @@ struct CustomerFormView: View {
         }
     }
 
+    /// Choosing which Business the customer belongs to.
+    ///
+    /// ===========================================================================================
+    /// FOUR STATES, BECAUSE THERE ARE FOUR SITUATIONS AND ONLY ONE OF THEM IS "WAIT"
+    /// ===========================================================================================
+    ///
+    /// This branch used to test `model.businesses.isEmpty` and show a spinner. That was correct
+    /// only while the set was loading; for a principal authorized over no Business it produced a
+    /// spinner that never stopped, beside a Save button that could never be enabled, with nothing
+    /// on screen saying why. A person cannot tell a slow network from an impossible request, and
+    /// the interface was not telling them.
+    ///
+    /// The states are distinguished by `businessesPhase` rather than by the array, because an
+    /// empty array is the one thing all four have in common.
     @ViewBuilder
     private var businessPicker: some View {
-        if model.businesses.isEmpty {
+        switch model.businessesPhase {
+        case .idle, .loading:
             HStack {
                 Text("Business")
                 Spacer()
                 ProgressView().controlSize(.small)
             }
-        } else {
+            .accessibilityLabel("Loading businesses")
+
+        case .failed(let error):
+            // Temporary and retryable. It says so, and offers the retry, because the alternative
+            // is a person retyping a form they cannot submit.
+            VStack(alignment: .leading, spacing: 6) {
+                Label(
+                    error.errorDescription ?? "The list of businesses could not be loaded.",
+                    systemImage: error.symbolName
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                Button("Try Again") {
+                    Task { await model.loadBusinesses() }
+                }
+                .font(.footnote.weight(.medium))
+                .buttonStyle(.plain)
+                .foregroundStyle(DudoStyle.scarlet)
+            }
+
+        case .loaded where model.businesses.isEmpty:
+            // NOT AN ERROR, AND NOT SOMETHING THIS PERSON CAN FIX. `business_id` is required on
+            // CreateCustomer and the server never infers one, so with no authorized Business
+            // there is no request this client could construct. The honest thing is to say so and
+            // name who can change it, rather than to keep spinning.
+            //
+            // There is deliberately NO "create a business" action here: no contract defines one,
+            // and inventing a path to an operation the platform does not have would be worse than
+            // the dead end it replaced.
+            VStack(alignment: .leading, spacing: 4) {
+                Label("No business available", systemImage: "briefcase")
+                    .font(.footnote.weight(.medium))
+                Text("A customer has to belong to a business, and your account is not part of one yet. Ask whoever administers your Dudo organisation to add you to a business.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+
+        case .loaded:
             Picker("Business", selection: $businessID) {
                 ForEach(model.businesses) { business in
                     Text(business.displayLabel).tag(business.id)

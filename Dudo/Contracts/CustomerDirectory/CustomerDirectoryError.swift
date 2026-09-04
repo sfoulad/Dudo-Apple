@@ -93,10 +93,45 @@ nonisolated extension CustomerDirectoryError: LocalizedError {
         case .failedPrecondition: "Refresh the directory and try again."
         case .notFound: "It may have been removed. Refresh the directory."
         case .rateLimited(let seconds), .quotaExceeded(let seconds):
-            seconds.map { "Try again in about \($0) seconds." }
+            seconds.map { "Try again in about \(Self.retryPhrase(seconds: $0))." }
         case .internalFailure, .unavailable, .timeout: "Try again in a moment."
         default: nil
         }
+    }
+
+    /// `retry_after_seconds` as something a person can act on.
+    ///
+    /// ===========================================================================================
+    /// WHY THIS IS NOT "TRY AGAIN IN ABOUT 61200 SECONDS"
+    /// ===========================================================================================
+    ///
+    /// The platform has hard DAILY write ceilings, and `quota_exceeded` carries the seconds
+    /// remaining until the next 00:00 UTC reset — routinely tens of thousands of them. Handing
+    /// that number to someone who is trying to add a customer is arithmetic homework, and they
+    /// will read it as a malfunction rather than as an answer.
+    ///
+    /// IT ROUNDS TO THE COARSER UNIT DELIBERATELY. The value is derived from a FIXED WINDOW
+    /// BOUNDARY — the same number for every caller on the platform at that instant, computable
+    /// from a clock alone — so it is not a precise promise about this account and must not be
+    /// rendered as one. "About 17 hours" is exactly as true as the number it came from, and it
+    /// is the part a person can use.
+    ///
+    /// IT IS A DURATION AND NEVER A WALL-CLOCK TIME. Rendering "come back at 3:00" would need
+    /// this device's clock and time zone to agree with the server's window, and a device whose
+    /// clock is off by an hour would send the user away at the wrong time.
+    private static func retryPhrase(seconds: Int) -> String {
+        if seconds < 1 {
+            return "a moment"
+        }
+        if seconds < 90 {
+            return "\(seconds) second\(seconds == 1 ? "" : "s")"
+        }
+        if seconds < 5_400 {
+            let minutes = Int((Double(seconds) / 60).rounded())
+            return "\(minutes) minute\(minutes == 1 ? "" : "s")"
+        }
+        let hours = Int((Double(seconds) / 3_600).rounded())
+        return "\(hours) hour\(hours == 1 ? "" : "s")"
     }
 
     /// A symbol for the failure state. Neutral rather than alarming: most of these are
